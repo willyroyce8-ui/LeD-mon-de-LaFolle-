@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+<title>Atirma — Mon Univers</title>
+<style>
+  html,body{height:100%;margin:0;background:#000;overflow:hidden;font-family:Inter, Arial, sans-serif}
+  #container{width:100%;height:100%;position:relative}
+  .hint{
+    position:absolute;left:12px;bottom:12px;color:#ddd;
+    font-size:13px;background:rgba(0,0,0,0.36);padding:8px 10px;border-radius:8px;z-index:10;
+    backdrop-filter: blur(4px);
+  }
+</style>
+</head>
+<body>
+<div id="container"></div>
+<div class="hint">Pince/zoome avec deux doigts pour te rapprocher du Soleil — double-tap pour recentrer</div>
+
+<script type="module">
+/*
+  Version prête à déployer sur GitHub Pages.
+  - three.js depuis unpkg
+  - textes intégrés sur la texture du soleil (doit zoomer pour lire)
+  - 8 planètes + anneaux de Saturne
+  - bloom pour l'éclat du soleil
+  - contrôles tactiles et souris (OrbitControls)
+*/
+
+import * as THREE from 'https://unpkg.com/three@0.152.2/build/three.module.js';
+import { OrbitControls } from 'https://unpkg.com/three@0.152.2/examples/jsm/controls/OrbitControls.js';
+import { EffectComposer } from 'https://unpkg.com/three@0.152.2/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'https://unpkg.com/three@0.152.2/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'https://unpkg.com/three@0.152.2/examples/jsm/postprocessing/UnrealBloomPass.js';
+
+const container = document.getElementById('container');
+const scene = new THREE.Scene();
+
+// renderer
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+container.appendChild(renderer.domElement);
+
+// camera
+const camera = new THREE.PerspectiveCamera(40, window.innerWidth/window.innerHeight, 0.1, 5000);
+camera.position.set(0, 140, 900);
+
+// controls
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.enablePan = false;
+controls.minDistance = 160;
+controls.maxDistance = 3500;
+controls.zoomSpeed = 1.2;
+controls.rotateSpeed = 0.6;
+
+// lights
+scene.add(new THREE.AmbientLight(0x666666, 0.6));
+const sunLight = new THREE.PointLight(0xfff1d0, 3.6, 0, 2); sunLight.position.set(0,0,0); scene.add(sunLight);
+
+// postprocessing bloom
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.9, 0.6, 0.1);
+bloom.threshold = 0.2; bloom.strength = 1.2; bloom.radius = 0.6;
+composer.addPass(bloom);
+
+// starfield
+function makeStars(count=1800){
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(count*3);
+  const col = new Float32Array(count*3);
+  for(let i=0;i<count;i++){
+    const r = 1400 * (0.6 + Math.pow(Math.random(),0.8));
+    const theta = Math.random()*Math.PI*2;
+    const phi = Math.acos(2*Math.random()-1);
+    pos[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+    pos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+    pos[i*3+2] = r * Math.cos(phi);
+    const v = 0.5 + Math.random()*0.5;
+    col[i*3] = col[i*3+1] = col[i*3+2] = v;
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col,3));
+  const mat = new THREE.PointsMaterial({ size: 1.4, vertexColors:true, transparent:true });
+  scene.add(new THREE.Points(geo, mat));
+}
+makeStars(1600);
+
+// texture loader
+const loader = new THREE.TextureLoader();
+const TEX = {
+  mercury: 'https://threejs.org/examples/textures/planets/mercury.jpg',
+  venus:   'https://threejs.org/examples/textures/planets/venus.jpg',
+  earth:   'https://threejs.org/examples/textures/planets/earth_atmos_2048.jpg',
+  mars:    'https://threejs.org/examples/textures/planets/mars_1k_color.jpg',
+  jupiter: 'https://threejs.org/examples/textures/planets/jupiter.jpg',
+  saturn:  'https://threejs.org/examples/textures/planets/saturn.jpg',
+  saturnRing: 'https://threejs.org/examples/textures/planets/saturnring.png',
+  uranus:  'https://threejs.org/examples/textures/planets/uranus.jpg',
+  neptune: 'https://threejs.org/examples/textures/planets/neptune.jpg'
+};
+
+// create sun texture (canvas) with texts integrated on surface
+function createSunCanvasTexture(){
+  const size = 2048;
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // base radial gradient
+  const g = ctx.createRadialGradient(size/2, size/2, size*0.02, size/2, size/2, size*0.55);
+  g.addColorStop(0,'#fffdf2'); g.addColorStop(0.2,'#fff1c8'); g.addColorStop(0.45,'#ffc77a'); g.addColorStop(1,'#ff6a00');
+  ctx.fillStyle = g; ctx.fillRect(0,0,size,size);
+
+  // noise / surface details
+  for(let i=0;i<35000;i++){
+    ctx.fillStyle = `rgba(0,0,0,${Math.random()*0.02})`;
+    ctx.fillRect(Math.random()*size, Math.random()*size, Math.random()*1.2, Math.random()*1.2);
+  }
+
+  // corona glow layers
+  ctx.globalCompositeOperation = 'lighter';
+  for(let i=0;i<30;i++){
+    ctx.beginPath();
+    ctx.fillStyle = `rgba(255,${140+Math.floor(Math.random()*100)},80,${0.01})`;
+    ctx.arc(size/2 + (Math.random()-0.5)*25, size/2 + (Math.random()-0.5)*25, size*(0.48 + Math.random()*0.02),0,Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // helper: draw arc text letter by letter
+  function drawArc(text, radius, yOff, invert=false, font='bold 56px Georgia'){
+    ctx.font = font;
+    ctx.fillStyle = '#000';
+    ctx.textAlign = 'center';
+    const chars = text.split('');
+    const span = Math.PI * 0.62;
+    const start = -span/2;
+    for(let i=0;i<chars.length;i++){
+      const a = start + (i/(chars.length-1))*span;
+      const x = size/2 + Math.sin(a)*radius;
+      const y = size/2 - Math.cos(a)*radius + yOff;
+      ctx.save();
+      ctx.translate(x,y);
+      ctx.rotate(invert ? -a : a);
+      ctx.fillText(chars[i],0,0);
+      ctx.restore();
+    }
+  }
+
+  drawArc('La Folle du Démon', size*0.23, -110, false, 'bold 56px Georgia');
+  drawArc('Le centre de mon univers', size*0.23, 120, true, 'bold 56px Georgia');
+
+  ctx.font = 'bold 96px Georgia';
+  ctx.fillStyle = '#000';
+  ctx.fillText('Atirma', size/2, size/2 + 28);
+
+  return new THREE.CanvasTexture(canvas);
+}
+
+// sun mesh
+const sunTex = createSunCanvasTexture();
+const sunGeo = new THREE.SphereGeometry(70, 64, 64);
+const sunMat = new THREE.MeshStandardMaterial({
+  map: sunTex,
+  emissiveMap: sunTex,
+  emissive: new THREE.Color(0xffc87a),
+  emissiveIntensity: 1.6,
+  roughness: 0.6,
+  metalness: 0.05
+});
+const sun = new THREE.Mesh(sunGeo, sunMat);
+scene.add(sun);
+
+// halo sprite
+const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: new THREE.TextureLoader().load('https://threejs.org/examples/textures/lensflare/lensflare0.png'),
+  color: 0xffd1a3, transparent:true, opacity:0.5
+}));
+halo.scale.set(700,700,1); halo.position.copy(sun.position); scene.add(halo);
+
+// planets metadata
+const planets = [
+  {name:'Mercury', size:6, dist:140, tex:TEX.mercury, orbit:8, spin:10},
+  {name:'Venus', size:10, dist:190, tex:TEX.venus, orbit:14, spin:-40},
+  {name:'Earth', size:12, dist:250, tex:TEX.earth, orbit:22, spin:1},
+  {name:'Mars', size:9, dist:300, tex:TEX.mars, orbit:30, spin:1.03},
+  {name:'Jupiter', size:28, dist:370, tex:TEX.jupiter, orbit:70, spin:0.4},
+  {name:'Saturn', size:24, dist:470, tex:TEX.saturn, orbit:95, spin:0.44, ring:TEX.saturnRing},
+  {name:'Uranus', size:20, dist:560, tex:TEX.uranus, orbit:130, spin:0.72},
+  {name:'Neptune', size:20, dist:640, tex:TEX.neptune, orbit:160, spin:0.67},
+];
+
+const loaderPromises = planets.map(p => new Promise(r => loader.load(p.tex, t => { p.texture=t; r(); }, undefined, ()=>{ console.warn('tex fail', p.name); r(); })));
+loaderPromises.push(new Promise(r => loader.load(TEX.saturnRing, ()=>r(), undefined, ()=>r())));
+
+Promise.all(loaderPromises).then(()=> {
+  planets.forEach(p=>{
+    const pivot = new THREE.Object3D(); scene.add(pivot); p._pivot=pivot;
+
+    // orbit visual
+    const ringG = new THREE.RingGeometry(p.dist-0.35, p.dist+0.35, 128);
+    const ringM = new THREE.MeshBasicMaterial({ color:0xffffff, transparent:true, opacity:0.06, side:THREE.DoubleSide });
+    const ring = new THREE.Mesh(ringG, ringM); ring.rotation.x = Math.PI/2; scene.add(ring);
+
+    // planet
+    const g = new THREE.SphereGeometry(p.size, 48, 48);
+    const m = new THREE.MeshStandardMaterial({ map: p.texture || null, roughness:1 });
+    const mesh = new THREE.Mesh(g,m);
+    mesh.position.set(p.dist,0,0);
+    pivot.add(mesh);
+    p._mesh = mesh;
+
+    // tilt
+    mesh.rotation.z = (Math.random()-0.5)*0.4;
+
+    // label sprite
+    const cvs = document.createElement('canvas'); cvs.width=512; cvs.height=128;
+    const ctx = cvs.getContext('2d'); ctx.fillStyle='rgba(255,255,255,0.95)'; ctx.font='36px Arial'; ctx.textAlign='center';
+    ctx.fillText(p.name, 256, 70);
+    const sprTex = new THREE.CanvasTexture(cvs);
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: sprTex, transparent:true, opacity:0.9 }));
+    spr.scale.set(p.size*6, p.size*1.6, 1); spr.position.set(p.dist, -p.size-10, 0); scene.add(spr);
+
+    // saturn ring mesh
+    if(p.ring){
+      const ringGeo = new THREE.RingGeometry(p.size*1.6, p.size*2.6, 64);
+      const ringTex = new THREE.TextureLoader().load(p.ring);
+      const ringMat = new THREE.MeshBasicMaterial({ map: ringTex, side:THREE.DoubleSide, transparent:true });
+      const ringMesh = new THREE.Mesh(ringGeo, ringMat); ringMesh.rotation.x = 0.45; ringMesh.position.set(p.dist,0,0);
+      pivot.add(ringMesh);
+    }
+  });
+
+  // animation
+  const clock = new THREE.Clock();
+  (function animate(){
+    requestAnimationFrame(animate);
+    const t = clock.getElapsedTime();
+    sun.rotation.y = t * 0.02; halo.rotation.y = t * 0.015;
+    planets.forEach(p=>{
+      const ang = (clock.getElapsedTime() / p.orbit) * Math.PI * 2;
+      p._pivot.rotation.y = ang;
+      p._mesh.rotation.y += 0.002 * (1/p.spin);
+    });
+    controls.update();
+    composer.render();
+  })();
+});
+
+// resize handler
+window.addEventListener('resize', ()=>{
+  camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// double-tap to recenter
+let lastTouch = 0;
+container.addEventListener('touchend', ()=>{ const now = Date.now(); if(now - lastTouch < 300){ controls.reset(); camera.position.set(0,140,900);} lastTouch = now; });
+
+</script>
+</body>
+                                                                                                         </html>
